@@ -1,0 +1,159 @@
+---
+title: "Post Cell Bender Quality Filtering"
+author: "WRS"
+date: "1/15/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages, message=FALSE}
+
+library(Seurat) 
+library(dplyr)
+library(patchwork)
+library(DoubletFinder)
+library(ggplot2)
+library(ggridges)
+
+```
+
+## 1.1 load CellBender qc-ed libraries.
+
+```{r, 1.1 load Cell Bender outputs}
+
+# read in data location file
+
+sample_anno = read.csv(.../Sample_anno.csv")
+uncleanList = list()
+
+for(s in 1:length(sample_anno$Sample_ID)){
+  
+  # load counts, barcodes and features
+     
+  fname = list.files(sample_anno$cellbender_outs[s])[grep("filtered.h5",list.files(sample_anno$cellbender_outs[s]))]
+  counts = Read10X_h5(filename = file.path(sample_anno$cellbender_outs[s],fname))
+  sn_lib <- CreateSeuratObject(counts = counts, project = "humanWAT", min.cells = 3)
+     
+  # create Seurat object with covariates
+
+  sn_lib[["percent.mt"]] <- PercentageFeatureSet(sn_lib, pattern = "^MT-")
+  sn_lib[["percent.ribo"]] <- PercentageFeatureSet(sn_lib, pattern = "^RPS|^RPL")
+  sn_lib[["log10GenesPerUMI"]] <- log10(sn_lib$nFeature_RNA) / log10(sn_lib$nCount_RNA)
+  sn_lib[["pooled_sample_ID"]] <- sample_anno$Sample_ID[s]
+  sn_lib[["pooled_donors"]] <- sample_anno$Participant_IDs[s]
+  sn_lib[["seq_ID"]] <- sample_anno$Seq_ID[s]
+  sn_lib[["condition"]] = sample_anno$Phenotype[s]
+  sn_lib[["batch"]] = paste("batch",unlist(strsplit(sample_anno$Extended_Sample_ID[s],split="_"))[2],sep="")
+    
+  print(head(sn_lib))
+  uncleanList[[s]] = sn_lib
+  names(uncleanList)[s] = paste0(sample_anno$Sample_ID[s],"_lib")
+  rm(counts,sn_lib) 
+  print(paste("library generated for ",sample_anno$Sample_ID[s],sep=""))
+  
+}
+
+```
+
+## 1.2. Removal of low quality cells (i.e. total counts, few expressed genes, low diversity, high mitochondrial, high ribosomal counts. 
+
+# Plot per sample qc histograms and counts
+
+```{r, 1.2.1 histograms to evaluate cut offs for removal}
+
+uncleanPlots = list()
+
+for(n in 1:length(uncleanList)){
+  
+  sn_lib = uncleanList[[n]]
+  
+  metadata <- sn_lib@meta.data
+  metadata$cells <- rownames(metadata)
+  metadata <- metadata %>%
+        dplyr::rename(pool_id = orig.ident,
+                      nUMI = nCount_RNA,
+                      nGene = nFeature_RNA)
+  metadata$umi_gene_ratio = metadata$nUMI/metadata$nGene
+  sn_lib@meta.data <- metadata
+  
+  sample_id = sn_lib@meta.data$pooled_sample_ID[1]
+  p1 = VlnPlot(sn_lib, features = c("nGene", "nUMI", "percent.mt", "percent.ribo"), ncol = 4)
+  p2 = FeatureScatter(sn_lib, feature1 = "nUMI", feature2 = "percent.mt")
+  p3 = FeatureScatter(sn_lib, feature1 = "nUMI", feature2 = "percent.ribo")
+  p4 = FeatureScatter(sn_lib, feature1 = "nUMI", feature2 = "nGene")
+  p5 = (p1 | p2 | p3 | p4) + plot_annotation(title = sample_id)
+  print(p4)
+  
+  uncleanPlots[[n]] = list(p1,p2,p3,p4)
+  uncleanList[[n]] = sn_lib
+  
+}
+
+names(uncleanPlots) = names(uncleanList)
+
+```
+
+# Remove low quality cells with fixed thresholds based on qc plots (iniital sample level qc; made more stringent after integration).
+
+```{r, 1.2.2 clean sce list using fixed thresholds, fig.width=12,fig.height=16}
+
+cleanPlots = list()
+cleanList = list()
+
+for(c in 1:length(uncleanList)){
+  
+  clean = uncleanList[[c]]
+  sample_id = clean@meta.data$sample_ID[1]
+  print(dim(clean))
+  clean = subset(clean, subset = nUMI > 500 & nGene > 400 & percent.mt < 5.0 & percent.ribo < 5.0 & log10GenesPerUMI > 0.85  ) 
+  print(dim(clean))
+  
+  cleanList[[c]] = clean
+
+}
+
+```
+
+## 1.3 Gene level filter
+
+```{r, 1.3 Removal of low count genes}
+
+clean = function(x){
+  DefaultAssay(x) == "RNA"
+  mt = rownames(x)[grep("^MT-",rownames(x))]
+  rps = rownames(x)[grep("^RPS",rownames(x))]
+  rpl = rownames(x)[grep("^RPL",rownames(x))]
+  keep = rownames(x)[!rownames(x) %in% c(mt,rps,rpl)]
+  x = subset(x, features = keep)
+}
+
+cleanList = lapply(cleanList, clean)
+
+for(s in 1:length(cleanList)){
+  
+  clean = cleanList[[s]]
+  low = names(which(rowSums(clean) <= 10))
+  if(s==1){all_low = list(low)}
+  if(s>1){all_low = c(all_low,list(low))}
+  
+}
+
+all_low <- Reduce(intersect, all_low)
+length(all_low)
+
+for(s in 1:length(cleanList)){
+  
+  clean = cleanList[[s]]
+  clean = clean[which(!(rownames(clean) %in% all_low)),]
+  clean = clean[!duplicated(rownames(clean)),]
+  
+  print(dim(clean))
+  
+  saveRDS(clean,file.path(".../01_quality_filter/",paste(names(uncleanList)[s],"_clean.rds",sep="")))
+  
+}
+
+```
