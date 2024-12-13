@@ -1,0 +1,226 @@
+---
+title: "QC doublet removal"
+author: "WRS"
+date: "1/25/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages, message=FALSE}
+
+library(Seurat) 
+library(dplyr)
+library(patchwork)
+library(DoubletFinder)
+library(ggplot2)
+
+```
+
+## Doublet removal:
+
+# 1. Plot numbers and proportions of doublet and unassigned cells by cluster using high resolution clusters (to define small doublet clusters for removal)
+# 2. Remove (i) doublet clusters and (ii) genotype and (iii) expression based doublets.
+
+
+```{r, make plots}
+
+lib_list = list()
+sn_libs_doublets = list.files(".../02_DoubletFinder/",pattern=".rds", full.names = T)
+
+# for each pooled sample library
+
+for(s in 1:length(sn_libs_doublets)){
+  
+  # read in pooled library with genotype doublets and expression doublets pre identified
+
+  sn_lib = readRDS(sn_libs_doublets[s])
+  sample = unlist(strsplit(basename(sn_libs_doublets[s]),split="_lib_clean.rds"))
+  
+  # prepare doublet data for plotting
+  
+  sn_lib$gt_doublet_status = ifelse(metadata$donor_id=="doublet","doublet",ifelse(metadata$donor_id=="unassigned", "unassigned","singlet"))
+  sn_lib$gt_doublet_numeric = ifelse(metadata$donor_id=="doublet",1,ifelse(metadata$donor_id=="unassigned",0.5,0))
+  sn_lib$doublet_union = ifelse(sn_lib$gt_doublet_status=="doublet" | sn_lib$DF_score_geno_per == "Doublet", 1,0)
+  sn_lib$doublet_inter = ifelse(sn_lib$gt_doublet_status=="doublet" & sn_lib$DF_score_geno_per == "Doublet", 1,0)
+  
+  # set cell identities with high resolution leiden clustering (SCT assay) to identify doublet high clusters 
+
+  Idents(sn_lib) = sn_lib$SCT_snn_res.0.8
+  
+  # select doublet columns for plotting doublets in umap and barplots
+
+  doublet_scores <- colnames(sn_lib@meta.data)[grep("gt_doublet_numeric|doublet_union",colnames(sn_lib@meta.data))]
+  doublet_dimplots = list()
+  doublet_barplots = list()
+  
+  for(ds in 1:length(doublet_scores)){
+    
+    # umap biplot of singlets + unassigned + doublets
+
+    doublet = doublet_scores[ds]
+    doublet_dimplt <- DimPlot(sn_lib, pt.size=0.01, reduction = "umap", label=T, split.by =  doublet ) & 
+    theme(legend.position = "bottom") & guides(color = guide_legend(nrow = 2, byrow = TRUE, override.aes = list(size = 3))) &
+    ggtitle(label = paste(sample,doublet_scores[ds],sep=" "))
+  
+    doublet_dimplots[[ds]] = doublet_dimplt
+
+    # barplots of singlet + unassigned + doublet proportions by cluster
+
+    dat = cbind(sn_lib@meta.data["SCT_snn_res.0.8"], sn_lib@meta.data[doublet_scores[ds]] )
+    
+    counts = table(dat)
+    prop = prop.table(counts, margin = 1)
+    
+    counts = reshape2::melt(counts)
+    colnames(counts) = c("cluster","doublet","count")
+    counts$cluster = as.factor(counts$cluster)
+    counts$doublet = as.factor(counts$doublet)
+    levels(counts$doublet ) <- c("singlet","unassigned", "doublet")
+    
+    # counts plot
+
+    counts = ggplot(counts,aes(x = cluster, y = count, fill= doublet)) +
+        geom_bar(stat="identity", position= "dodge") +
+        theme_bw()+ ggtitle(label = paste(doublet_scores[ds], "Number of cells", sep=" ")) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+    
+    prop = reshape2::melt(prop)
+    colnames(prop) = c("cluster","doublet","proportion")
+    prop$cluster = as.factor(prop$cluster)
+    prop$doublet = as.factor(prop$doublet)
+    levels(prop$doublet ) <- c("singlet","unassigned", "doublet")
+
+    # proportions plot
+
+    prop = ggplot(prop,aes(x = cluster, y = proportion, fill= doublet)) +
+        geom_bar(stat="identity") +
+        theme_bw()+ ggtitle(label = paste(doublet_scores[ds], "Fraction of cells", sep=" ")) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+    
+    doublet_barplt = counts | prop
+    doublet_barplots[[ds]] = doublet_barplt  
+    
+  }
+  
+  # make cell type marker genes umap and violoin plots for comparisons
+     
+  DefaultAssay(sn_lib) <- "RNA"
+  genes = c("PLIN1","ADIPOQ","MRC1","SKAP1","PECAM1","MECOM","PDGFRA","PDGFRB","HPGD","BANK1","KIT","HDC","PROX1")
+  marker_genes = FeaturePlot(sn_lib, features = genes, label = T)
+  marker_genes_2 = VlnPlot(sn_lib, features = genes, pt.size = 0)
+  
+  plots_list = list(doublet_dimplots,doublet_barplots,marker_genes,marker_genes_2)
+  names(plots_list) = c("doublet_dimplots","doublet_barplots","marker_genes","marker_genes_2")
+  qc_plots_list[[l]] = plots_list
+  names(qc_plots_list)[l] = sample
+
+  # make libraries list of objects
+  
+  lib_list[[s]] = sn_lib
+  names(lib_list)[s] = sample
+  
+}
+
+```
+# view plots
+
+```{r, view plots}
+
+for(p in 1:length(qc_plots_list)){
+  
+  p1 = qc_plots$doublet_dimplots[[1]] + qc_plots$doublet_dimplots[[2]]  
+  p2 =  qc_plots$doublet_barplots[[1]] + qc_plots$doublet_barplots[[2]] 
+  p3 = p1 / p2 / qc_plots$marker_genes / qc_plots$marker_genes_2
+  
+  fname = paste(".../",names(qc_plots_list)[p],".pdf",sep="")
+  pdf(fname, width = 12, height = 24)
+  print(p3)
+  dev.off()
+
+}
+
+```
+
+# set doublet clusters to remove from each sample pool
+
+```{r, remove doublets}
+
+clusters_to_remove = list(
+     Pool1_MO = c(12), Pool1_NW = "", Pool1_WL = "", 
+     Pool2_MO = 15, Pool2_NW = "", Pool2_WL = "", 
+     Pool3_MO = "", Pool3_NW = "", Pool3_WL = "",
+     Pool4_MO = "", Pool4_NW = "", Pool4_WL = c(14),
+     Pool5_MO = c(10,16,21), Pool5_NW = "", Pool5_WL = "",
+     Pool6_MO = c(13), Pool6_NW = "", Pool6_WL = "")
+
+no_clusters = names(clusters_to_remove)[clusters_to_remove ==""]
+
+for(l in 1:length(lib_list)){
+  
+  print(l)
+  
+  sn_lib = lib_list[[l]]
+  sample = names(lib_list)[l]
+  
+  # remove doublets in steps, and tabulate ncells for each step
+
+  ncells = dim(sn_lib)[2]
+
+  # remove genotype doublets
+  sn_lib =  subset(sn_lib, subset = gt_doublet_status == "doublet" , invert = T )
+  ncells = c(ncells,dim(sn_lib)[2])
+
+  # remove genotype unassigned
+  sn_lib =  subset(sn_lib, subset =  gt_doublet_status == "unassigned"  , invert = T )
+  ncells = c(ncells,dim(sn_lib)[2])
+
+  # remove doublet finder expression doublets
+  sn_lib =  subset(sn_lib, subset = DF_score_geno_per == 0)
+  ncells = c(ncells,dim(sn_lib)[2])
+
+  # remove doublet clusters
+  print(sample)
+  remove = unlist(clusters_to_remove[[sample]])
+  remove = remove[ remove %in% levels(Idents(sn_lib))]
+  
+  print(paste0("cluster to remove: ",remove))
+  if(!sample %in% no_clusters  ) {sn_lib =  subset(sn_lib, idents = remove, invert = T)}
+  ncells = c(ncells,dim(sn_lib)[2])
+  
+  # tabulate removed doublets
+  names(ncells) = c("pre","rm_gt_db","rm_gt_ambig","rm_df_db","rm_clust_db")
+  if(l==1) {ncells_table = ncells}
+  if(l>1) {ncells_table = rbind(ncells_table,ncells)}
+  print(ncells_table)
+  # output doublet-removed libraries as list
+  
+  print(paste0("Saving clean seurat obj as rds for: ",sample))
+  saveRDS(sn_lib,paste0(".../",sample,"_lib_clean.rds"))
+}
+
+```
+
+# Re-normalise and re-SCTransform
+
+```{r, retransform}
+
+for(l in 1:length(lib_list)){
+  
+  sn_lib = lib_list[[l]]
+  sn_lib = NormalizeData(sn_lib, verbose = FALSE)
+  sn_lib = suppressWarnings(SCTransform(sn_lib, vars.to.regress = "percent.mt", verbose = FALSE))
+  sn_lib = RunPCA(sn_lib, verbose = FALSE)
+  sn_lib = RunUMAP(sn_lib, dims = 1:30, verbose = FALSE)
+  sn_lib = FindNeighbors(sn_lib, dims = 1:30, verbose = FALSE)
+  sn_lib = FindClusters(sn_lib, resolution = 0.8, verbose = FALSE)
+  
+  saveRDS(sn_lib,paste0(".../",sample,"_lib_clean.rds"))
+  
+}
+
+```
+
+###
