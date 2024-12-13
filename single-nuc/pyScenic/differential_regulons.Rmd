@@ -1,0 +1,132 @@
+---
+title: "Differential regulons"
+output: html_notebook
+---
+
+```{r, message=FALSE, error=FALSE, warning=FALSE}
+
+library(Seurat)
+library(patchwork)
+library(tidyverse)
+library(ggplot2)
+
+```
+
+# load global regulons
+
+```{r}
+
+swat = readRDS("/.../swat_all_seurat_integration_scott_ref_stringent_regulons_global_annotated_stringent_subsample.rds")
+
+```
+
+## Find differentially expressed regulons between conditions for each cell type/state
+
+# Conditions by cell type
+
+```{r}
+
+Idents(swat) = "cell_type_am_fine"
+cells = names(table(swat$cell_type_am_fine))
+cells = cells[!cells =="Lymphoid-Kit+"]
+
+tflist = list()
+
+for(c in 1:length(cells)){
+  
+  cell = cells[c]
+  print(cell)
+  ob = FindMarkers(swat, ident.1 = "Obese", ident.2 = "Lean", verbose = TRUE, group.by="condition", subset.ident = cell, min.pct = 0, logfc.threshold = 0, only.pos = F, test.use = "wilcox")
+  colnames(ob) = paste0("ln_ob_",colnames(ob))
+  ob$tf = rownames(ob)
+  
+  wl = FindMarkers(swat, ident.1 = "Weightloss", ident.2 = "Obese", verbose = TRUE, group.by="condition", subset.ident = cell, min.pct = 0, logfc.threshold = 0, only.pos = F, test.use = "wilcox")
+  colnames(wl) = paste0("ob_wl_",colnames(wl))
+  wl$tf = rownames(wl)
+  
+  all = merge(ob,wl, by.x="tf",by.y="tf",all=T)
+  
+  print(head(all,n=50))
+  
+  tflist[[cell]]$ob = ob
+  tflist[[cell]]$wl = wl
+  tflist[[cell]]$all = all
+}
+
+saveRDS(tflist, "/.../diff_reg_ln_ob_wl_scott_stringent_subsample_type.rds")
+
+```
+
+# Conditions by cell state
+
+```{r}
+
+Idents(swat) = "cell_state_am_long"
+
+cells = unclass(table(swat$cell_state_am_long, swat$condition))
+cells = rownames(cells)[rowMin(cells) > 20]
+cells = cells[!cells =="Unassigned"]
+
+tflist = list()
+
+for(c in 1:length(cells)){
+  
+  cell = cells[c]
+  print(cell)
+  ob = FindMarkers(swat, ident.1 = "Obese", ident.2 = "Lean", verbose = TRUE, group.by="condition", subset.ident = cell, min.pct = 0, logfc.threshold = 0, only.pos = F, test.use = "wilcox")
+  colnames(ob) = paste0("ln_ob_",colnames(ob))
+  ob$tf = rownames(ob)
+  
+  wl = FindMarkers(swat, ident.1 = "Weightloss", ident.2 = "Obese", verbose = TRUE, group.by="condition", subset.ident = cell, min.pct = 0, logfc.threshold = 0, only.pos = F, test.use = "wilcox")
+  colnames(wl) = paste0("ob_wl_",colnames(wl))
+  wl$tf = rownames(wl)
+  
+  all = merge(ob,wl, by.x="tf",by.y="tf",all=T)
+  
+  tflist[[cell]]$ob = ob
+  tflist[[cell]]$wl = wl
+  tflist[[cell]]$all = all
+}
+
+saveRDS(tflist, "/.../diff_reg_ln_ob_wl_fine_scott_stringent_subsample_state.rds")
+
+```
+
+## Find cell state specific regulons, comparing cell states with all other cell states within cell type
+
+```{r}
+
+cells = names( table(swat$cell_type_am))
+
+statemks = list()
+allmks = as.data.frame(matrix(nrow=0,ncol=8))
+colnames(allmks) = c("p_val","avg_log2FC","pct.1","pct.2","p_val_adj","cluster","gene","cell")
+
+for(c in 1:length(cells)){
+  
+  celltype = subset(swat, subset = cell_type_am == cells[c])
+  
+  Idents(celltype) = "cell_state_am_long"
+  
+  celltype = subset(celltype, subset = cell_state_am_long == "Unassigned", invert = T)
+  
+  mks = FindAllMarkers(celltype, assay = "RNA", min.pct = 0, logfc.threshold = 0, only.pos = T, test.use = "wilcox")
+  if(nrow(mks)>0) { mks$cell = cells[c] }
+  rownames(mks) = NULL
+  
+  print(head(mks,n=50))
+  
+  allmks = rbind(allmks,mks)
+  statemks[[cells[c]]] = mks
+  
+}
+
+saveRDS(statemks,"/.../cell_state_regulons_stringent_subsample_list_2.rds")
+
+saveRDS(allmks,"/.../cell_state_regulons_stringent_subsample_table_2.rds")
+
+```
+
+      
+
+
