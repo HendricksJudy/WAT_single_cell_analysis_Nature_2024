@@ -1,0 +1,102 @@
+---
+title: "vireo noGT vs impGT with/out ambiantRNAcall concordance"
+author: "mjang"
+date: "25/1/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Find concordance/discordance in vireo result
+
+This script calculates concordance and discordance of cluster assignment of 
+snRNAseq cells by Vireo at 4 modes.
+
+Using base table() function, the function conv_cb shows concordance
+between Vireo with/out genotype results and with/out ambiantRNAcall.
+The default path is for cellbender pipeline output for Phase 4 human_WAT pjt.
+
+```{r libraries, include=FALSE}
+library(tidyverse)
+#library(dplyr)
+```
+
+## 1. define function
+
+Vireo data were generated from snRNAseq sequencing data on g1k MAF 5e4 sites.
+When donour genotype was used for vireo, imputed genotype was used.
+
+```{r 1. define function}
+conv_cb = function(spl,
+                  basedir='/.../human_WAT/Phase_4',
+                  fnoGT=file.path(basedir,"vireo/cb_bcode/noGT/default",spl,"donor_ids.tsv"),
+                  fwtGT=file.path(basedir,"vireo/cb_bcode/with_geno/imputed",spl,"donor_ids.tsv"),
+                  fnoGTaR=file.path(basedir,"vireo/cb_bcode/noGT/aRNA",spl,"donor_ids.tsv"),
+                  fwtGTaR=file.path(basedir,"vireo/cb_bcode/with_geno/impGT.aRNA",spl,"donor_ids.tsv")                  
+                 ) {
+
+    # 1. Load input data
+    v.noGT = read.table(file = fnoGT, sep = '\t', header = TRUE)
+    v.wtGT = read.table(file = fwtGT, sep = '\t', header = TRUE)
+    v.noGTaR = read.table(file = fnoGTaR, sep = '\t', header = TRUE)
+    v.wtGTaR = read.table(file = fwtGTaR, sep = '\t', header = TRUE)
+    cat("\ncell assignment by Vireo noGT default for: ",spl,"\n")
+    tn <- table(v.noGT$donor_id)
+    print(tn)
+    cat("\ncell assignment by Vireo noGT with aRNA for: ",spl,"\n")
+    tnR <- table(v.noGTaR$donor_id)
+    print(tnR)
+    cat("\ncell assignment by Vireo wtGT default for: ",spl,"\n")
+    tg <- table(v.wtGT$donor_id)
+    print(tg)
+    cat("\ncell assignment by Vireo wtGT with aRNA for: ",spl,"\n")
+    tgR <- table(v.wtGTaR$donor_id)
+    print(tgR)
+
+    # 2. merge table
+    noGT.m = merge(x=v.noGT, y=v.noGTaR, by="cell")
+    wtGT.m = merge(x=v.wtGT, y=v.wtGTaR, by="cell")
+
+    def.m = merge(x=v.noGT, y=v.wtGT, by="cell")
+    aRNA.m = merge(x=v.noGTaR, y=v.wtGTaR, by="cell")
+    
+    # 3. concordance table
+    cat("\ncluster assignment by vireo noGT +aRNA vs default for: ",spl,"\n")
+    t1 <- table(noGT.m$donor_id.y, noGT.m$donor_id.x)
+    print(t1)
+
+    cat("\ncluster assignment by vireo impGT +aRNA vs default for: ",spl,"\n")
+    t2 <- table(wtGT.m$donor_id.y, wtGT.m$donor_id.x)
+    print(t2)
+
+    cat("\ncluster assignment by vireo default wtGT vs vireo noGT: ",spl,"\n")
+    t3 <- table(def.m$donor_id.y, def.m$donor_id.x)
+    print(t3)
+    
+    cat("\ncluster assignment by vireo +aRNA wtGT vs vireo noGT: ",spl,"\n")
+    t4 <- table(aRNA.m$donor_id.y, aRNA.m$donor_id.x)
+    print(t4)
+
+    return(aRNA.m)
+}
+
+```
+## 2. Run by sample
+
+WS1 has irregular path on SoC result so need manually giving file path.
+
+```{r, 2. Run by sample}
+# WS1 
+ws1 <- conv_cb("WS1")
+```
+
+## 3. Save merged cell data
+
+```{r, 3. Save merged cell data}
+
+write.table(ws1, file=file.path(basedir,"vireo/cb_bcode/WS1_aRNA.tsv"),
+            row.names=FALSE, sep="\t")
+
+```
