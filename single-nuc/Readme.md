@@ -1,4 +1,4 @@
-Anndata object can be visuzalized and downloaded from Single Cell Portal: [SCP3116](https://singlecell.broadinstitute.org/single_cell/study/SCP3116)
+Anndata object can be visuzalized and downloaded on Single Cell Portal: [SCP3116](https://singlecell.broadinstitute.org/single_cell/study/SCP3116)
 
 The following metadata is included in the object:
 
