@@ -38,10 +38,31 @@ try:  # optional dependency but widely available
 except ImportError:  # pragma: no cover - fall back to json only
     yaml = None
 
+_REQUIRED_STACK = {
+    "matplotlib": _plt,
+    "numpy": _np,
+    "pandas": _pd,
+    "scanpy": _sc,
+    "scipy": _stats,
+}
+
+
 if TYPE_CHECKING:  # pragma: no cover - type checking only
     from anndata import AnnData
     import pandas as pd
     import numpy as np
+
+
+def list_missing_dependencies() -> List[str]:
+    """Return the scientific Python packages that are unavailable."""
+
+    return [name for name, module in _REQUIRED_STACK.items() if module is None]
+
+
+def scientific_stack_available() -> bool:
+    """True when the core scientific dependencies are importable."""
+
+    return not list_missing_dependencies()
 
 
 def _require_dependency(name: str, module):

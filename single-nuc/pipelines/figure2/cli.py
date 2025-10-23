@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 try:  # pragma: no cover - allows running as a module
-    from .pipeline import Figure2Config, run_pipeline
+    from .pipeline import Figure2Config, run_pipeline, list_missing_dependencies, scientific_stack_available
 except ImportError:  # pragma: no cover - executed when run as a script
     MODULE_PATH = Path(__file__).resolve().with_name("pipeline.py")
     spec = importlib_util.spec_from_file_location("figure2_pipeline", MODULE_PATH)
@@ -20,6 +20,8 @@ except ImportError:  # pragma: no cover - executed when run as a script
     spec.loader.exec_module(pipeline)
     Figure2Config = pipeline.Figure2Config  # type: ignore[attr-defined]
     run_pipeline = pipeline.run_pipeline  # type: ignore[attr-defined]
+    list_missing_dependencies = pipeline.list_missing_dependencies  # type: ignore[attr-defined]
+    scientific_stack_available = pipeline.scientific_stack_available  # type: ignore[attr-defined]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,6 +47,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if args.output_dir is not None:
         cfg.output_dir = args.output_dir
     if args.mock:
+        cfg.mock_mode = True
+    if not cfg.mock_mode and not scientific_stack_available():
+        missing = ", ".join(list_missing_dependencies())
+        print(
+            "Scientific Python stack not fully available (missing: "
+            f"{missing}). Falling back to mock mode."
+        )
+        print("Install the required dependencies or re-run with --mock explicitly.")
         cfg.mock_mode = True
     run_pipeline(cfg)
 

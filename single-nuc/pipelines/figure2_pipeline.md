@@ -7,7 +7,7 @@ This document describes the end-to-end workflow for generating the panels shown 
 ```bash
 python single-nuc/pipelines/figure2/cli.py config/figure2.yaml
 ```
-If the scientific Python stack (Scanpy, pandas, numpy, matplotlib, etc.) is unavailable—such as when smoke-testing in a minimal CI container—enable the mock mode to generate placeholder artefacts without importing those libraries:
+If the scientific Python stack (Scanpy, pandas, numpy, matplotlib, etc.) is unavailable—such as when smoke-testing in a minimal CI container—the CLI automatically falls back to mock mode and prints a warning identifying the missing packages. You can also enable mock mode explicitly to generate placeholder artefacts without importing those libraries:
 
 ```bash
 python single-nuc/pipelines/figure2/cli.py single-nuc/pipelines/figure2/mock_config.yaml --mock
@@ -28,7 +28,7 @@ The automated runner depends on the scientific Python stack that underpins Scanp
 - `harmonypy`
 - `bbknn`
 
-If any of these libraries are missing, the CLI will terminate with an import error before reading the configuration file unless mock mode is enabled.
+If any of these libraries are missing, the CLI prints a warning that it is switching to mock mode; install the packages above to produce the real scientific outputs.
 
 An example configuration can be used as a template:
 
