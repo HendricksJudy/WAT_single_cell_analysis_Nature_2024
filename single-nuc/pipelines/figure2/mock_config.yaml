@@ -1,0 +1,27 @@
+integrated_h5ad: data/mock_integrated.h5ad
+output_dir: results/figure2_mock
+mock_mode: true
+preprocess:
+  global_output_name: mock_global_annotated.h5ad
+myeloid:
+  output_prefix: mock_figure2a
+  condition_key: condition
+  color_key: label
+  myeloid_labels: [MockMyeloid]
+compass:
+  expression_output: mock_compass/expression.tsv
+  flux_matrix: mock_compass/flux.tsv
+  sample_metadata: mock_compass/metadata.tsv
+  condition_reference: LN
+  condition_test: OB
+  condition_alternative: WL
+  sample_key: sample
+  condition_key: condition
+lam_trm:
+  flux_matrix: mock_compass/flux.tsv
+  sample_metadata: mock_compass/metadata.tsv
+  subtype_key: macrophage_subtype
+  lam_labels: [LAM]
+  trm_labels: [TRM]
+scenith:
+  scenith_csv: mock_scenith/scenith_data.tsv
